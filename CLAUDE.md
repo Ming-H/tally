@@ -52,6 +52,8 @@ ruff check .                            # lint (CI enforces)
 QUICK=1 ./run_tests.sh                  # 快速档：ruff + pytest + default 集（约 1 分钟）
 ```
 
+**CI**（`.github/workflows/ci.yml`，push/PR 触发）：ruff → pytest → README 冒烟（ingest samples → ask → default eval `--min-* 1.0`）→ 真值三集 innolight / quarters / multihop（heuristic；`TALLY_DB=/tmp/truth.db` 隔离库重摄取双语料；`--min-retrieval 1.0 --min-hit 1.0`，跌破即非零退出）。
+
 **After changing retrieval/graph/answer code**, run `python -m tally.cli eval --mode heuristic` (deterministic baseline — plain `eval` defaults to `auto`, which silently goes llm when Ollama is up and adds small-model variance) and verify the headline metrics don't regress (heuristic 全集 1.00/1.00/1.00); `evalx.py` additionally reports citation_coverage (pass/coverage; v0.7 前叫 faithfulness) and chunk-level P/R@8 — check those too on retrieval changes. Bug fixes follow TDD — failing test first, watch it fail, then fix (DESIGN-v0.4 §5 and DESIGN-v0.5.md record two such rounds).
 
 ### Corpus
@@ -197,4 +199,4 @@ e=5%、g=2%、20 步 → ≤2%（朴素模型 36% 失败），且失败形态 = 
 | `docs/EXPLAINER.md` | 一条 query 的完整旅程（narrated walkthrough） |
 | `docs/TEST-CASES.md` / `docs/RAG-EVAL-CASES.md` | 测试手册（四层/验收/trace 读法）/ 评估集设计方法论 |
 
-(v0.6.5 — D26 Q3 双列修复、方向闸、trend LLM-in-the-loop 默认开、裁判自检 — 记录在作者源仓，不在本仓。) 设计文档记录 *why*——动前先查（别 re-litigate），改架构后更新。`docs/plans/` 存实施计划。配套教程[《动手学 Agent RAG》](https://github.com/Ming-H/hands-on-agent-rag)（13 章 / 13 破坏性实验 / 40 真值题）以本仓为唯一载体——改公开行为时保持仓库 tutorial-ready。
+(v0.6.5 — D26 Q3 双列修复、方向闸、trend LLM-in-the-loop 默认开、裁判自检 — 记录在作者源仓，不在本仓。) 设计文档记录 *why*——动前先查（别 re-litigate），改架构后更新。`docs/plans/` 存实施计划。配套教程[《动手学 Agent RAG》](https://github.com/Ming-H/hands-on-agent-rag)（五部 14 章 / 16 个破坏性实验 / 40 道真值题，结构定案见 `docs/plans/2026-10-27-教程五部14章重构-design.md`）以本仓为唯一载体——改公开行为时保持仓库 tutorial-ready。
