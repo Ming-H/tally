@@ -88,6 +88,26 @@ def test_parse_filename_rejects_non_company_fallback():
     assert (company, kind) == ("永和股份", "ANALYSIS")
 
 
+def test_parse_filename_rejects_subjectless_report():
+    """无主体财报名（期间命中、公司剥空，如 2026年半年度报告.pdf）拒收
+    ——修前 company='' 静默入库，doc_id='_2026H1' 垃圾身份（doc_scope
+    公司匹配与台账键全被空串污染）。教程 ch02 演练要求的应拒反例②。"""
+    from tally.ingest import parse_filename
+    with pytest.raises(ValueError):
+        parse_filename("2026年半年度报告.pdf")
+
+
+def test_parse_filename_fallback_rejects_pdf():
+    """兜底 ANALYSIS 通道只收 md/txt：CJK 主干的非财报命名 PDF 不得以
+    period='MD' 入库（修前 第一季度报告.pdf → ('第一季度报告','MD')）——
+    契约是「md/txt 的 CJK 主干走 ANALYSIS，其余拒收」。"""
+    from tally.ingest import parse_filename
+    with pytest.raises(ValueError):
+        parse_filename("某公司分析.pdf")
+    with pytest.raises(ValueError):
+        parse_filename("第一季度报告.pdf")
+
+
 def test_period_hints_exclusive():
     """「半年度」包含「年度」：顺序判定会让 FY 混进半年度问题的
     期间过滤，年报块随之淹没正确期间（2026-10-14 全量库实测）。"""

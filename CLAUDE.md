@@ -44,9 +44,9 @@ python -m tally.cli eval --dataset multihop       # v0.7 多跳 8 题（跨年�
 python -m tally.cli eval --dataset multiturn      # v0.7 多轮 10 轮接力（L0 继承链）
 
 # Tests / lint
-pytest                                  # 135 cases; conftest blocks all real LLM calls
+pytest                                  # 137 cases; conftest blocks all real LLM calls
 pytest tests/test_store.py::test_readd_after_drop_no_ghost   # one test
-ruff check .                            # lint (CI enforces)
+ruff check .                            # lint (CI enforces; line-length=100 非 ruff 默认 88，规则集 E4/E7/E9/F/I——见 pyproject.toml)
 ./run_tests.sh                          # 全量一条龙：ruff + pytest + 七数据集 eval + 冒烟问答断言
                                         #   （全 --mode heuristic 与 CI 同口径，约 5 分钟；报告落 test_reports/latest.log）
 QUICK=1 ./run_tests.sh                  # 快速档：ruff + pytest + default 集（约 1 分钟）
@@ -103,7 +103,7 @@ QUICK=1 ./run_tests.sh                  # 快速档：ruff + pytest + default �
 
 Two planes, one SQLite file — tables `docs` / `chunks` / `fts_w` / `fts_c` / `manifest` / `verified_facts` (+ optional `vecs` / `vecmeta`). `verified_facts` keys on (company, period, metric, caliber), append-only + supersede（永不物理删除；部分索引 `vf_live WHERE superseded_by IS NULL` 只索引活行，死行留存审计轨迹）.
 
-**Offline ingest** — `source.py` scans a directory into `{path: mtime_ns-size fingerprint}` and three-way diffs against `manifest`（add/update/delete + orphan cleanup scoped to the scan root）. `ingest.py` extracts metadata from the **filename**（巨潮 convention → company/period/kind — never model guessing; broker naming `日期-券商-公司` also parses; md/txt with a CJK company-name stem ingest as ANALYSIS, **anything else rejected with ⚠** — a digit-stem like `20261009_…分析.md` used to become garbage doc-id `20261009_MD`）, strips repeated header/footer lines（frequency-based, digits stripped in normalization — headers share lines with page numbers）, chunks with **table-awareness**（表格是原子块，绝不拦腰切断）, and appends **num_notes** number-normalization notes（`41,914.72 万元` → `≈4.19亿`）so lexical search hits 「多少亿」-style queries.
+**Offline ingest** — `source.py` scans a directory into `{path: SHA-256 内容哈希指纹}`（v0.7 正确性批升级，修前 mtime_ns+size 有两个洞：`cp -p` 保 mtime 改内容漏检、touch 假更新）and three-way diffs against `manifest`（add/update/delete + orphan cleanup scoped to the scan root）. `ingest.py` extracts metadata from the **filename**（巨潮 convention → company/period/kind — never model guessing; broker naming `日期-券商-公司` also parses; md/txt with a CJK company-name stem ingest as ANALYSIS, **anything else rejected with ⚠** — a digit-stem like `20261009_…分析.md` used to become garbage doc-id `20261009_MD`；subject-less report names（`2026年半年度报告.pdf` → doc_id `_2026H1`）与 CJK 主干 PDF 同样拒收）, strips repeated header/footer lines（frequency-based, digits stripped in normalization — headers share lines with page numbers）, chunks with **table-awareness**（表格是原子块，绝不拦腰切断）, and appends **num_notes** number-normalization notes（`41,914.72 万元` → `≈4.19亿`）so lexical search hits 「多少亿」-style queries.
 
 **Online QA graph**（`graph.py`，LangGraph state machine over `GraphState` — narrow-interface TypedDict in `schemas.py`；每个节点只读所需、只写所责，`trace` 是 append 语义）:
 
