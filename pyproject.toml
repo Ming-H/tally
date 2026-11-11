@@ -4,7 +4,7 @@
 
 [project]
 name = "tally"
-version = "0.7.0"
+version = "0.8.0"
 description = "中文财报封闭世界事实 Agent：LLM 组织语言，确定性闸门拥有事实"
 requires-python = ">=3.12"
 

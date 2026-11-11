@@ -90,6 +90,8 @@ AGENT_TOOLS = [_SEARCH_TOOL, _METRICS_TOOL, _DERIVE_TOOL]
 # 意图关键词（route 与 rule_understand 共用；摘要词优先，防止
 # 「总结业绩预告」被「预告」劫持到 metric）
 _SUMMARY_WORDS = ("总结", "摘要", "概览", "要点", "怎么样", "如何看", "怎么看", "观点")
+# D28：归因问句词面（memory_probe 不短路的判定依据）
+_ASKS_WHY = re.compile(r"为什么|为何|原因|怎么回事|怎么会|归因|驱动")
 _METRIC_WORDS = ("多少", "几个点", "占比", "增长率", "率", "每股",
                  "营收", "收入", "利润", "净利", "毛利", "现金流", "订单", "在手", "手持",
                  "亿元", "万元", "同比", "环比", "预告")
@@ -1057,6 +1059,128 @@ def _derived_ok(derived, pool) -> bool:
     return True
 
 
+
+# ── D27：章节路由（DESIGN-v0.8 §二）─────────────────────
+
+_TOC_PAT = re.compile(r"第[一二三四五六七八九十百]+节")
+# 目录行：第X节 名称（汉字/字母数字/顿号）…（点线/省略号，可空）… -页码-
+_SEC_LINE = re.compile(
+    r"(第[一二三四五六七八九十百]+节)[\s]*"
+    r"([\u4e00-\u9fa5A-Za-z0-9、与和的（）()]{2,24}?)[\s.·…]*[-—–]?\s*(\d{1,3})\s*[-—–]?"
+)
+
+
+def _parse_toc(text: str) -> list[tuple[str, int]] | None:
+    """目录块文本 → 有序 [(章节名, 起页)]；页码必须严格递增（防正文
+    里'第X节…数字'撞库），不足两节视为解析失败。"""
+    out: list[tuple[str, int]] = []
+    for m in _SEC_LINE.finditer(text):
+        name = f"{m.group(1)} {m.group(2)}".strip()
+        try:
+            page = int(m.group(3))
+        except ValueError:
+            continue
+        if out and page <= out[-1][1]:
+            continue
+        out.append((name, page))
+    return out if len(out) >= 2 else None
+
+
+def _scan_toc(corpus: Corpus, doc_id: str) -> tuple[list[tuple[str, int]] | None, int | None]:
+    """扫描目录 → (有序章节映射 | None, 目录所在页 | None)。结果挂
+    corpus 实例缓存，同 doc 二次查询零成本。只扫前 8 页——巨潮年报
+    目录惯例位置；券商研报/季报无目录 → (None, None)。"""
+    cache = getattr(corpus, "_toc_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(corpus, "_toc_cache", cache)
+    if doc_id in cache:
+        return cache[doc_id]
+    result: tuple[list[tuple[str, int]] | None, int | None] = (None, None)
+    for c in corpus.chunks_of(doc_id, limit=60):
+        if c.page and c.page > 8:
+            break
+        if len(_TOC_PAT.findall(c.text)) >= 3:
+            secs = _parse_toc(c.text)
+            if secs:
+                result = (secs, c.page)
+                break
+    cache[doc_id] = result
+    return result
+
+
+def doc_sections(corpus: Corpus, doc_id: str) -> list[tuple[str, int]] | None:
+    """查询期解析文档目录 → 有序 [(章节名, 起页)]；无目录返回 None。
+
+    零 schema 变更（chunks 自带 page），已入库语料即时生效。
+    """
+    return _scan_toc(corpus, doc_id)[0]
+
+
+def toc_page_of(corpus: Corpus, doc_id: str) -> int | None:
+    """目录块所在页——**目录截止线**：页码 ≤ 它的块都是封面/重要提示/
+    目录本体（结构垃圾，D27 从所有补充池剔除的锚）。"""
+    return _scan_toc(corpus, doc_id)[1]
+
+
+def mda_start(corpus: Corpus, doc_id: str) -> int | None:
+    """MD&A（经营情况讨论与分析）章节起页；无目录/无该节返回 None。"""
+    for name, page in doc_sections(corpus, doc_id) or []:
+        if "管理层讨论" in name or "经营情况讨论" in name:
+            return page
+    return None
+
+
+def mda_span(corpus: Corpus, doc_id: str) -> tuple[int, int] | None:
+    """MD&A 页范围 (起, 止+1)；止页取下一节起页，尾节/未知 +6 页窗
+    （MD&A 惯例长度，硬帽 +12 防尾节异常吞全文）。"""
+    secs = doc_sections(corpus, doc_id) or []
+    start = None
+    for i, (name, page) in enumerate(secs):
+        if "管理层讨论" in name or "经营情况讨论" in name:
+            start = page
+            nxt = secs[i + 1][1] if i + 1 < len(secs) else None
+            end = nxt if (nxt and start < nxt <= start + 12) else start + 6
+            return start, end
+    return None
+
+
+def mda_attribution_hits(corpus: Corpus, eff_query: str,
+                         companies: list[str], period: str,
+                         years: set[str]) -> list:
+    """归因问句的 MD&A 定向检索（D28 配套，DESIGN-v0.8 §三）。
+
+    病理：归因句住在 MD&A 章节，但不一定含指标词字面；季度表页的
+    指标词+数字密度把它挤出 top-8（真库实测：「净利润为什么增长」
+    命中季度表/审计页，归因句缺席）。
+    修法：对目标公司+期间、有目录的文档，用归因锚词检索并按 MD&A
+    页范围过滤，命中块去重前置。无目录文档返回空（不干预）。
+    锚词表按真库词表校准（中际旭创 2025FY 实测：主要原因是×5/推动×10/
+    受益于×2/驱动×3，而「主要系/所致」为 0——两种公告方言并收）。"""
+    allowed = {d for d, doc in corpus.docs.items()
+               if (not companies or doc.company in companies)
+               and (not period or period in doc.period)
+               and (not years or doc.period[:4] in years)}
+    if not allowed:
+        return []
+    probe = (f"{eff_query} 主要原因是 主要原因 主要系 主要由于"
+             " 得益于 受益于 推动 带动 驱动 所致")
+    filt = companies[0] if len(companies) == 1 else ""
+    out: list = []
+    for d in sorted(allowed):
+        span = mda_span(corpus, d)
+        if span is None:
+            continue
+        lo, hi = span
+        # 窗口先放大再页过滤：指标表页的词面密度会占满小 k 的整个
+        # 候选窗（实测 k=12 全被 p8 季度表占据，MD&A 命中进不了窗）
+        cand = [h for h in corpus.search(probe, k=60, doc_filter=filt,
+                                         doc_scope={d})
+                if lo <= (h.chunk.page or 0) < hi]
+        out.extend(cand[:4])
+    return out
+
+
 def make_nodes(corpus: Corpus):
 
     def understand(state: GraphState) -> GraphState:
@@ -1248,8 +1372,24 @@ def make_nodes(corpus: Corpus):
         if (state.get("understanding") or {}).get("intent") == "metric":
             hits = front_key_table(hits, state["understanding"],
                                    state["query"], corpus)
+        # D28 配套：归因问句的 MD&A 定向捞取——归因句被指标表页挤出
+        # top-8 时，用 D27 章节映射把它捞回并前置（去重保序）
+        if _ASKS_WHY.search(state["query"]):
+            yrs = query_years(state["query"]) or set(u.get("years") or [])
+            boost = mda_attribution_hits(corpus, eff, companies, period, yrs)
+            if boost:
+                seen_ids = {h.chunk.chunk_id for h in hits}
+                fresh = [h for h in boost if h.chunk.chunk_id not in seen_ids]
+                hits = boost + [h for h in hits
+                                if h.chunk.chunk_id not in {b.chunk.chunk_id for b in boost}]
+                trace_note = f"+mda×{len(fresh)}"
+            else:
+                trace_note = ""
+        else:
+            trace_note = ""
         # 该公司该期间没有对应文档（allowed 为空或 scoped 空）→ 用未过滤结果
-        return {**state, "hits": hits, "trace": [f"retrieve:{len(hits)} hits"]}
+        return {**state, "hits": hits,
+                "trace": [f"retrieve:{len(hits)} hits{trace_note}"]}
 
     def grade_docs(state: GraphState) -> GraphState:
         if not state.get("hits"):
@@ -1581,24 +1721,50 @@ def make_nodes(corpus: Corpus):
         # 「管理层怎么说/总结」要的是叙述性内容——MD&A（经营情况讨论
         # 与分析）是唯一可靠章节锚，泛关键词种子此前命中封面/回购明细
         # 表（实测）；长报告头部 12 块是封面/名录（茅台实测空要点）
-        mda_probe = corpus.search("经营情况讨论 与分析 管理层", k=2,
-                                  doc_filter=filt, doc_scope={target})
+        # D27 升级：目录页直接给出 MD&A 起页——直取该页（目录即真相，
+        # 关键词锚自己也会撞目录页：目录行含「管理层讨论与分析」，
+        # 合成年报实测）；无目录才退化关键词锚
+        mda_pg_early = mda_start(corpus, target)
         mda_seed = []
         get_page = getattr(corpus, "chunks_page", None)
-        if mda_probe and get_page and mda_probe[0].chunk.page:
-            m = mda_probe[0].chunk
-            mda_seed = get_page(m.doc_id, m.page)[1:7] \
-                + get_page(m.doc_id, m.page + 1)[:6]
+        if mda_pg_early is not None and get_page:
+            mda_seed = get_page(target, mda_pg_early)[1:7] \
+                + get_page(target, mda_pg_early + 1)[:6]
+        if not mda_seed:
+            mda_probe = corpus.search("经营情况讨论 与分析 管理层", k=2,
+                                      doc_filter=filt, doc_scope={target})
+            if mda_probe and get_page and mda_probe[0].chunk.page:
+                m = mda_probe[0].chunk
+                mda_seed = get_page(m.doc_id, m.page)[1:7] \
+                    + get_page(m.doc_id, m.page + 1)[:6]
         company0 = (companies or [""])[0]
         probe = expand_query(f"{company0} 主要会计数据 营业收入 净利润 同比")
         seed_hits = corpus.search(probe, k=6, doc_filter=filt,
                                   doc_scope={target})
-        seed = mda_seed + [h.chunk for h in seed_hits][:6] \
-            + [h.chunk for h in hits if h.chunk.doc_id == target][:6]
+        # D27 章节路由：结构截止线双闸——
+        # ① 目录截止线（toc_page_of）：页码 ≤ 目录页的块 = 封面/重要提示/
+        #   目录本体，从一切补充池剔除（目录行含「管理层讨论与分析」等
+        #   关键词，行级打分原理上无法区分目录与正文；指标探针 seed_hits
+        #   也会撞「主要财务指标」目录行——合成年报实测）。
+        # ② MD&A 起页线（mda_start）：hits/文档头池再剔 MD&A 之前的块。
+        # mda_seed（目录直取 MD&A 页）是定向种子，豁免。无目录 → 双闸
+        # 全开 → 保持 v0.7 行为（sections:none 诚实降级）。
+        toc_pg = toc_page_of(corpus, target)
+        mda_pg = mda_pg_early
+
+        def _after_toc(c) -> bool:
+            return toc_pg is None or (c.page or 0) > toc_pg
+
+        def _past_front(c) -> bool:
+            return _after_toc(c) and (mda_pg is None or (c.page or 0) >= mda_pg)
+
+        seed = mda_seed + [h.chunk for h in seed_hits if _after_toc(h.chunk)][:6] \
+            + [h.chunk for h in hits
+               if h.chunk.doc_id == target and _past_front(h.chunk)][:6]
         seen_ids = set()
         seed = [c for c in seed if not (c.chunk_id in seen_ids or seen_ids.add(c.chunk_id))]
         doc_chunks = seed + [c for c in corpus.chunks_of(target, limit=12)
-                             if c.chunk_id not in seen_ids]
+                             if c.chunk_id not in seen_ids and _past_front(c)]
         head = corpus.docs[target]
         # 打分选行（替代关键词命中即收）：叙事动词加分、表头/会计政策
         # 残渣强减分——「净利润（元）」表头含关键词却无值（实测混入）
@@ -1624,7 +1790,8 @@ def make_nodes(corpus: Corpus):
         body = (f"{head.company}（{head.period} {head.kind}）要点：\n"
                 + "\n".join(f"· {line}" for line in key_lines))
         return {**state, "answer": body, "citations": [target], "verdict": "pass",
-                "trace": [f"summarize:{target}"]}
+                "trace": [f"summarize:{target}",
+                          f"sections:{mda_pg if mda_pg is not None else 'none'}"]}
 
     def refuse(state: GraphState) -> GraphState:
         return {**state,
@@ -1975,6 +2142,12 @@ def make_nodes(corpus: Corpus):
             state = {**state, "fact_key": key}   # 写侧与 L0 轮摘要共用
         if not (key and mem.enabled()):
             return state
+        # D28 归因守卫：why 问句不短路。L1 台账只有数字事实（what），
+        # 命中即 END 会把归因问句降格为数字复读——部分证据不应终止
+        # 推理（公理 ② 的完整性细化，DESIGN-v0.8 §三）。全链路里
+        # expand_query 已为归因词注入「主要系/主要由于」。
+        if _ASKS_WHY.search(state["query"]):
+            return {**state, "trace": ["memory:skip(why问句→全链路)"]}
         status, row = mem.read_fact(corpus, key)
         if status == "stale":
             return {**state, "trace": ["memory:stale(指纹失效→supersede)"]}

@@ -280,6 +280,9 @@ def expand_query(query: str) -> str:
         if slang in query.lower():
             extra.extend(formal[:2])
     if any(w in query for w in ("原因", "为什么", "为何", "变动", "下滑", "增长")):
-        extra += ["主要系", "主要由于", "说明"]
+        # 归因锚词按真库词表校准（D28）：深交所公告方言「主要系/主要由于」
+        # 之外，创业板年报实测高频用「主要原因是/推动」（中际旭创 2025FY：
+        # 主要原因是×5、推动×10，而主要系×0）——两种方言并收
+        extra += ["主要系", "主要由于", "主要原因", "推动", "说明"]
     extra = list(dict.fromkeys(extra))          # 同义词表多键命中会重复
     return f"{query} {' '.join(extra)}".strip() if extra else query

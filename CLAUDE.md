@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Tally（tally，前身 对账/duizhang）— a Chinese financial-report **closed-world fact Agent**. The name is the contract: 对账 = every answer must be reconcilable against the source — every sentence carries a citation, every citation traces back to a page of the original filing; an answer that can't be reconciled is refused, never fabricated.
 
-v0.7 closed-world contract（不要削弱）:
+v0.8（DESIGN-v0.8：D27 章节路由/D28 归因通道）· v0.7 closed-world contract（不要削弱）:
 
 - **事实只来自内部 RAG 证据** — LLM 参数知识只组织语言，永不生产事实。
 - **工具白名单只含内部动作**：`search` / `metrics_table` / `derive` — 永无浏览器、外部 API、模型生成代码。
@@ -176,6 +176,8 @@ e=5%、g=2%、20 步 → ≤2%（朴素模型 36% 失败），且失败形态 = 
 | L0/L1/L2 三层记忆 | **MemGPT** 分层记忆；LangGraph store（semantic/episodic/procedural） | [MemGPT, Packer et al. 2023](https://arxiv.org/abs/2310.08560)；[LangGraph memory](https://docs.langchain.com/oss/python/concepts/memory) |
 | eₖ·gₖ 公理 + waste_rate 度量 | 多步 **compounding errors** 的传播结构治理 | [SAUP, 2024](https://arxiv.org/abs/2412.01033)；[MAST, 2025](https://arxiv.org/abs/2503.13657)；Anthropic BEA 同警告 |
 | trend 确定性遍历（不进 agent 环） | **workflows over agents**（可预测路径不给模型） | [Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents) |
+| D27 章节路由（目录解析→MD&A 页过滤） | **Hierarchical Indices**（层级索引的财报域定制：章节即层级） | [NirDiamant/RAG_Techniques](https://github.com/NirDiamant/RAG_Techniques) |
+| D28 归因通道（why 问句分流+MD&A 定向捞取） | **Adaptive Retrieval**（按问句类型分流检索路径） | 同上 |
 
 2024–2025 业界共识（LangChain / Weaviate / Qdrant / NVIDIA）已把「自主检索 + 分级重试 + **护栏即模式的一部分**」收为 agentic RAG 的标准形态——本仓的 verify 闸门 + 有界步数 + waste_rate 正是那个共识的度量面（[Weaviate 定义](https://weaviate.io/blog/what-is-agentic-rag)）。
 
@@ -191,6 +193,7 @@ e=5%、g=2%、20 步 → ≤2%（朴素模型 36% 失败），且失败形态 = 
 | 文档 | 是什么的权威 |
 |---|---|
 | `docs/INTRODUCTION.md` | 新读者导览（what/why/architecture 白话 + 三条阅读路径——首读指这里） |
+| `docs/DESIGN-v0.8-structure-routing.md` | **v0.8 语义问法收口，已落地**：D27 章节路由（查询期目录解析→MD&A 页过滤，`doc_sections`/`mda_start`/`toc_page_of`）+ D28 归因通道（`memory_probe` why 守卫 + `mda_attribution_hits` MD&A 定向捞取，归因锚词按真库方言校准）|
 | `docs/DESIGN-v0.7-agent.md` | **v0.7 Agent 升级，已全部落地验证**：四支柱（ReAct 观测/Planner/Memory/derive）+ §3 长程可靠性公理 + §7 记忆六公理 + §8 eₖ/gₖ 真机实测（回归护栏 = tests/test_v07.py + quarters/multihop/multiturn 三集） |
 | `docs/DESIGN-v0.6.md` | agent 环与小模型护栏（D9–D12）、trend 层（§6）、v0.6.3 真值修复（§7：D13/D14/D16/D18）、P1 批（§8：CI 真值冒烟、评估扩容 + faithfulness/chunk-P/R、向量消融 D19）、**§9 已知边界账本（gate ≠ correctness——动 verify_citations 前必读；样本 C = 每股收益断词，未修）**、§10 多公司泛化批（D20 简称/D21 行级抽取/D22 口径数值闸——茅台语料实测） |
 | `docs/DESIGN-v0.5.md` | agentic 地基（D1–D6；D7 = LLM 通道实测——本文 Environment 节的出处） |
