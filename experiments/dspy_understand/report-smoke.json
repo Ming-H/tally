@@ -1,0 +1,79 @@
+{
+  "config": {
+    "smoke": true,
+    "n_cases": 4,
+    "picks": [
+      [
+        "default",
+        3
+      ],
+      [
+        "agent",
+        1
+      ]
+    ],
+    "model": "glm-5.3"
+  },
+  "baseline": {
+    "mean": 1.0,
+    "summary": {
+      "mode": "llm",
+      "dataset": "dspy-exp",
+      "cases": 4,
+      "retrieval_top3": 1.0,
+      "answer_hit": 1.0,
+      "refusal": null,
+      "citation_coverage": 0.75,
+      "mean_coverage": 0.71,
+      "steps": {
+        "calls": 14,
+        "new": 7,
+        "dup": 0,
+        "empty": 3,
+        "waste_rate": 0.3
+      },
+      "chunk_p@8": 0.0,
+      "chunk_r@8": 0.0
+    },
+    "scores": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "optimized": {
+    "mean": 1.0,
+    "summary": {
+      "mode": "llm",
+      "dataset": "dspy-exp",
+      "cases": 4,
+      "retrieval_top3": 1.0,
+      "answer_hit": 1.0,
+      "refusal": null,
+      "citation_coverage": 1.0,
+      "mean_coverage": 0.772,
+      "steps": {
+        "calls": 12,
+        "new": 6,
+        "dup": 0,
+        "empty": 2,
+        "waste_rate": 0.25
+      },
+      "chunk_p@8": 0.0,
+      "chunk_r@8": 0.0
+    },
+    "scores": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "questions": [
+    "欧科亿 2026 年半年度预计净利润多少",
+    "欧科亿 2026 年半年度扣除非经常性损益的净利润",
+    "海伦哲第一季度营业收入多少",
+    "对比欧科亿和海伦哲 2026 年第一季度的营业收入"
+  ]
+}

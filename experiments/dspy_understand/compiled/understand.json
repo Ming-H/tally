@@ -1,0 +1,38 @@
+{
+  "traces": [],
+  "train": [],
+  "demos": [],
+  "signature": {
+    "instructions": "你是财报问答系统的查询理解器。从用户问题抽取结构化字段。\n注意「XX变动的原因」是 metric 不是 summary，「最近几个季度的趋势」\n是 trend 不是 summary。",
+    "fields": [
+      {
+        "prefix": "Question:",
+        "description": "用户问题"
+      },
+      {
+        "prefix": "Intent:",
+        "description": "五选一枚举：metric=问具体数字/指标/事实/原因/归因；trend=跨期趋势/多期对比（最近几个季度/近几年的指标变化，问投资建议也归 trend）；summary=要整体概览/总结全篇；compare=对比多家公司；other=闲聊或超纲"
+      },
+      {
+        "prefix": "Companies:",
+        "description": "问题中的公司名，逗号分隔，原样摘取；没有则空字符串"
+      },
+      {
+        "prefix": "Period:",
+        "description": "财报日历枚举：一季度/一季报/Q1→Q1，半年度/中报/二季度→H1，三季→Q3，年度/年报/四季度→FY；仅提年份（如「2025 年营收」）也算 FY；未提及期间则空字符串"
+      },
+      {
+        "prefix": "Reason:",
+        "description": "一句话判断依据"
+      }
+    ]
+  },
+  "lm": null,
+  "metadata": {
+    "dependency_versions": {
+      "python": "3.12",
+      "dspy": "3.5.0",
+      "cloudpickle": "3.1"
+    }
+  }
+}

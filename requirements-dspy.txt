@@ -1,0 +1,1 @@
+dspy[optuna]>=3.5
